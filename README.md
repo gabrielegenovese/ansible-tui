@@ -2,7 +2,7 @@
 
 A small terminal UI for an existing local Ansible project. It reads the actions
 straight from `playbook.yaml`, runs one at a time, and shows what is happening
-on every host — without remembering flags or scrolling through walls of text.
+on every host, without remembering flags or scrolling through walls of text.
 
 ![Ansible TUI demo](docs/demo.gif)
 
@@ -174,7 +174,7 @@ This tool intentionally stays small. Current known limits:
   `ansible.cfg`, but the TUI will not ask for a password interactively.
 - Inventory editing writes the file directly, with no undo/backup.
 - Host vars are read-only.
-- Designed for local, interactive use on small/medium inventories — not for CI,
+- Designed for local, interactive use on small/medium inventories, not for CI,
   scheduled jobs, or multi-user fleet management. For those, look at
   [ansible-navigator](https://github.com/ansible/ansible-navigator),
   [AWX](https://github.com/ansible/awx), or
@@ -193,4 +193,4 @@ CI runs formatting, Clippy (`-D warnings`) and tests on every push/PR. Pushing a
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
