@@ -1,0 +1,18 @@
+[package]
+name = "ansible-tui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A small Ratatui TUI for running and editing local Ansible projects"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/gabrielegenovese/ansible-tui"
+authors = ["Gabriele Genovese"]
+keywords = ["ansible", "tui", "terminal", "ratatui", "devops"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+anyhow = "1"
+crossterm = "0.28"
+ratatui = "0.29"
+tui-textarea = "0.7"

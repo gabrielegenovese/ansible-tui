@@ -1,0 +1,5 @@
+---
+demo_role: docker
+demo_compose_projects:
+  - name: demo-api
+    path: /srv/demo-api

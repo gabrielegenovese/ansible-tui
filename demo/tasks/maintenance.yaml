@@ -1,0 +1,18 @@
+---
+# These inner tags intentionally do not show up as separate actions: the play
+# itself is tagged `maintenance`, and play-level tags win in the tag list.
+- name: Pull the latest container images
+  ansible.builtin.debug:
+    msg: "docker compose pull"
+  tags: pull
+
+- name: Restart the containers
+  ansible.builtin.debug:
+    msg: "docker compose up -d"
+  changed_when: true
+  tags: restart
+
+- name: Prune old images
+  ansible.builtin.debug:
+    msg: "docker image prune -f"
+  tags: prune

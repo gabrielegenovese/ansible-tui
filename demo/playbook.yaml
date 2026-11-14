@@ -1,0 +1,40 @@
+---
+# Demo project used by the README and the terminal recording.
+# Every play is tagged, so each tag shows up as one action in the TUI.
+- name: Check local tooling
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: check_setup
+  tasks:
+    - name: Show the Ansible version
+      ansible.builtin.debug:
+        msg: "Ansible {{ ansible_version.full }}"
+
+    - name: Simulate a configuration check
+      ansible.builtin.debug:
+        msg: "configuration looks good"
+      changed_when: true
+
+- name: Deploy the demo web app
+  hosts: web
+  gather_facts: false
+  tags: deploy_web
+  tasks:
+    - import_tasks: tasks/deploy_web.yaml
+
+- name: Maintain containers
+  hosts: docker
+  gather_facts: false
+  tags: maintenance
+  tasks:
+    - import_tasks: tasks/maintenance.yaml
+
+- name: Print an inventory report
+  hosts: all
+  gather_facts: false
+  tags: report
+  tasks:
+    - name: Show host and groups
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} is in {{ group_names | join(', ') }}"

@@ -1,0 +1,13 @@
+---
+- name: Render release metadata
+  ansible.builtin.debug:
+    msg: "deploying release {{ demo_release | default('dev') }}"
+
+- name: Simulate a changed deployment step
+  ansible.builtin.debug:
+    msg: "application deployed on {{ inventory_hostname }}"
+  changed_when: true
+
+- name: Simulate an idempotent check
+  ansible.builtin.debug:
+    msg: "service already running"
