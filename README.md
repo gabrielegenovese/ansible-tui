@@ -28,6 +28,9 @@ keeps Ansible as the single source of truth.
   `ansible-playbook --list-tags`, so the list never drifts from the YAML.
   Play-level tags win; for plays without a play tag, the task tags are used.
   Tags of imported tasks do not become fake top-level actions.
+- **Target at a glance**: every action shows the host pattern of its play
+  (for example `update_site on site`), so you know what a tag touches before
+  running it.
 - **Live run view**: per-host `ok` / `changed` / `failed` / `skipped` summary,
   current task, and streaming output.
 - **Inventory browser/editor**: preview an inventory and edit it in place

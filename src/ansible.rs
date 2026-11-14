@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -99,15 +99,23 @@ pub fn read_host_vars_preview(path: &Path) -> String {
     }
 }
 
+/// A runnable action discovered from the playbook: the tag to pass to
+/// `ansible-playbook --tags` and the host pattern(s) of the play(s) using it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlayAction {
+    pub tag: String,
+    pub hosts: String,
+}
+
 /// Run `ansible-playbook <playbook> --list-tags` and collect the tags that
-/// identify a play (or, for untagged plays, its tasks). This makes the playbook
-/// the single source of truth for "what can I run" instead of a separate,
-/// hand-maintained folder of files.
+/// identify a play (or, for untagged plays, its tasks), together with the host
+/// pattern of the play. This makes the playbook the single source of truth for
+/// "what can I run" instead of a separate, hand-maintained folder of files.
 pub fn list_playbook_tags(
     root: &Path,
     playbook: &Path,
     inventory: Option<&Path>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<PlayAction>> {
     let mut cmd = Command::new("ansible-playbook");
     cmd.arg(playbook)
         .arg("--list-tags")
@@ -154,16 +162,29 @@ fn parse_tag_list(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// Extract the host pattern from a `--list-tags` play header, e.g. `debian`
+/// from `play #1 (debian): Update Debian container`.
+fn parse_play_hosts(line: &str) -> String {
+    line.split_once('(')
+        .and_then(|(_, rest)| rest.split_once(')'))
+        .map(|(hosts, _)| hosts.trim().to_string())
+        .unwrap_or_default()
+}
+
 /// Parse the output of `--list-tags`.
 ///
-/// Each play is printed as a `play #N ... TAGS: [...]` header followed by a
-/// `TASK TAGS: [...]` line that aggregates the tags of every task in the play.
-/// The play-level tags are the actual "actions" of the playbook: a play tagged
-/// `update_prune_docker` whose imported tasks also carry `pull`/`restart`/`prune`
-/// must stay a single entry, not four. So prefer the play tags and only fall
-/// back to the task tags for plays that don't declare any of their own.
-fn parse_list_tags_output(text: &str) -> Vec<String> {
-    let mut plays: Vec<(Vec<String>, Vec<String>)> = Vec::new();
+/// Each play is printed as a `play #N (hosts): name TAGS: [...]` header followed
+/// by a `TASK TAGS: [...]` line that aggregates the tags of every task in the
+/// play. The play-level tags are the actual "actions" of the playbook: a play
+/// tagged `update_prune_docker` whose imported tasks also carry
+/// `pull`/`restart`/`prune` must stay a single entry, not four. So prefer the
+/// play tags and only fall back to the task tags for plays that don't declare
+/// any of their own.
+///
+/// A tag used by more than one play is returned once, with the play host
+/// patterns merged (e.g. `db, web`).
+fn parse_list_tags_output(text: &str) -> Vec<PlayAction> {
+    let mut plays: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
 
     for line in text.lines() {
         let trimmed = line.trim();
@@ -175,23 +196,36 @@ fn parse_list_tags_output(text: &str) -> Vec<String> {
                 .next()
                 .map(parse_tag_list)
                 .unwrap_or_default();
-            plays.push((play_tags, Vec::new()));
+            plays.push((parse_play_hosts(trimmed), play_tags, Vec::new()));
         } else if let Some(rest) = trimmed.strip_prefix("TASK TAGS:")
-            && let Some((_, task_tags)) = plays.last_mut()
+            && let Some((_, _, task_tags)) = plays.last_mut()
         {
             task_tags.extend(parse_tag_list(rest));
         }
     }
 
-    let mut tags = BTreeSet::new();
-    for (play_tags, task_tags) in plays {
-        if play_tags.is_empty() {
-            tags.extend(task_tags);
+    let mut actions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (hosts, play_tags, task_tags) in plays {
+        let tags = if play_tags.is_empty() {
+            task_tags
         } else {
-            tags.extend(play_tags);
+            play_tags
+        };
+        for tag in tags {
+            let hosts_for_tag = actions.entry(tag).or_default();
+            if !hosts.is_empty() {
+                hosts_for_tag.insert(hosts.clone());
+            }
         }
     }
-    tags.into_iter().collect()
+
+    actions
+        .into_iter()
+        .map(|(tag, hosts)| PlayAction {
+            tag,
+            hosts: hosts.into_iter().collect::<Vec<_>>().join(", "),
+        })
+        .collect()
 }
 
 /// Parse an INI-style Ansible inventory and return the sorted, de-duplicated host list.
@@ -297,6 +331,18 @@ pub fn run_ansible(
 mod tests {
     use super::*;
 
+    fn tags(actions: &[PlayAction]) -> Vec<&str> {
+        actions.iter().map(|action| action.tag.as_str()).collect()
+    }
+
+    fn hosts<'a>(actions: &'a [PlayAction], tag: &str) -> &'a str {
+        actions
+            .iter()
+            .find(|action| action.tag == tag)
+            .map(|action| action.hosts.as_str())
+            .unwrap_or("<missing>")
+    }
+
     #[test]
     fn parses_list_tags_output_across_multiple_plays() {
         let sample = "\
@@ -308,8 +354,13 @@ playbook: playbook.yaml
   play #2 (db): Database servers\tTAGS: []
       TASK TAGS: [backup, deploy, migrate]
 ";
-        let tags = parse_list_tags_output(sample);
-        assert_eq!(tags, vec!["backup", "deploy", "migrate", "restart"]);
+        let actions = parse_list_tags_output(sample);
+        assert_eq!(
+            tags(&actions),
+            vec!["backup", "deploy", "migrate", "restart"]
+        );
+        assert_eq!(hosts(&actions, "deploy"), "all, db");
+        assert_eq!(hosts(&actions, "backup"), "db");
     }
 
     #[test]
@@ -332,8 +383,10 @@ playbook: playbook.yaml
   play #3 (docker): Update Docker Images\tTAGS: [update_prune_docker]
       TASK TAGS: [prune, pull, restart, update_prune_docker]
 ";
-        let tags = parse_list_tags_output(sample);
-        assert_eq!(tags, vec!["update_debian", "update_prune_docker"]);
+        let actions = parse_list_tags_output(sample);
+        assert_eq!(tags(&actions), vec!["update_debian", "update_prune_docker"]);
+        assert_eq!(hosts(&actions, "update_debian"), "debian");
+        assert_eq!(hosts(&actions, "update_prune_docker"), "docker");
     }
 
     #[test]
@@ -347,8 +400,30 @@ playbook: playbook.yaml
   play #2 (db): tagged play\tTAGS: [migrate]
       TASK TAGS: [backup, migrate]
 ";
-        let tags = parse_list_tags_output(sample);
-        assert_eq!(tags, vec!["deploy", "migrate", "restart"]);
+        let actions = parse_list_tags_output(sample);
+        assert_eq!(tags(&actions), vec!["deploy", "migrate", "restart"]);
+        assert_eq!(hosts(&actions, "deploy"), "all");
+        assert_eq!(hosts(&actions, "migrate"), "db");
+    }
+
+    #[test]
+    fn merges_host_patterns_for_a_shared_tag() {
+        let sample = "\
+playbook: playbook.yaml
+
+  play #1 (web): Deploy web\tTAGS: [deploy]
+      TASK TAGS: [deploy]
+
+  play #2 (db): Deploy db\tTAGS: [deploy]
+      TASK TAGS: [deploy]
+";
+        assert_eq!(
+            parse_list_tags_output(sample),
+            vec![PlayAction {
+                tag: "deploy".into(),
+                hosts: "db, web".into(),
+            }]
+        );
     }
 
     #[test]
@@ -359,6 +434,12 @@ playbook: playbook.yaml
   play #1 (all): manage TAGS: everywhere\tTAGS: [manage]
       TASK TAGS: [manage]
 ";
-        assert_eq!(parse_list_tags_output(sample), vec!["manage"]);
+        assert_eq!(
+            parse_list_tags_output(sample),
+            vec![PlayAction {
+                tag: "manage".into(),
+                hosts: "all".into(),
+            }]
+        );
     }
 }

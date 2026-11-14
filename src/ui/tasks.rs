@@ -31,11 +31,18 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let items = app.available_tags.iter().map(|tag| {
-        ListItem::new(Line::from(vec![
+    let items = app.available_tags.iter().map(|action| {
+        let mut spans = vec![
             Span::styled("▶ ", Style::default().fg(Color::Green)),
-            Span::raw(tag.as_str()),
-        ]))
+            Span::raw(action.tag.as_str()),
+        ];
+        if !action.hosts.is_empty() {
+            spans.push(Span::styled(
+                format!("  on {}", action.hosts),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        ListItem::new(Line::from(spans))
     });
 
     let title = if app.available_tags.is_empty() {

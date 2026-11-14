@@ -11,8 +11,8 @@ use std::{
 use tui_textarea::TextArea;
 
 use crate::ansible::{
-    discover_files, discover_host_vars, list_playbook_tags, parse_host_line, parse_inventory_hosts,
-    run_ansible,
+    PlayAction, discover_files, discover_host_vars, list_playbook_tags, parse_host_line,
+    parse_inventory_hosts, run_ansible,
 };
 
 pub const SPINNER: [char; 8] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
@@ -80,9 +80,10 @@ pub struct App {
     /// Path to the playbook (relative to `root`) that tags are read from and run against.
     pub playbook: PathBuf,
 
-    /// Tags discovered by asking Ansible itself (`--list-tags`) - the playbook is
-    /// the single source of truth, so this list can never drift out of sync with it.
-    pub available_tags: Vec<String>,
+    /// Actions discovered by asking Ansible itself (`--list-tags`) - the playbook
+    /// is the single source of truth, so this list can never drift out of sync
+    /// with it. Each entry also carries the host pattern of its play.
+    pub available_tags: Vec<PlayAction>,
     pub selected_tag: usize,
     /// Set when the last attempt to list tags failed (e.g. Ansible missing, playbook
     /// with a syntax error). Kept separate from `status` so the UI can show it prominently.
@@ -212,7 +213,7 @@ impl App {
     pub fn selected_tag(&self) -> Option<&str> {
         self.available_tags
             .get(self.selected_tag)
-            .map(String::as_str)
+            .map(|action| action.tag.as_str())
     }
 
     pub fn selected_inventory_path(&self) -> Option<&Path> {
